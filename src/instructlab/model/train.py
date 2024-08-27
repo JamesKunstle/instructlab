@@ -801,7 +801,7 @@ def _training_phase(
     run_training(train_args=train_args, torch_args=torch_args)
 
 
-def _mmlu(model: pathlib.Path) -> float:
+def _mmlu(model: pathlib.Path, *args, **kwargs) -> float:
     # Third Party
     from instructlab.eval.mmlu import MMLU_TASKS, MMLUEvaluator
     import torch
@@ -829,6 +829,9 @@ def _mtbench(
     eval_cache: pathlib.Path,
     mtbench_judge: pathlib.Path,
     enable_serving_output: bool,
+    checkpoint_idx: int,
+    *args,
+    **kwargs,
 ) -> float:
     # TODO: optimization: run all generations in serial and then do all judgments at once to save time loading/unloading prometheus.
 
@@ -844,6 +847,11 @@ def _mtbench(
     ctx.params["tls_client_key"] = None
     ctx.params["tls_client_passwd"] = None
     ctx.params["tls_insecure"] = True
+
+    # hotfix for buildup of answer.jsonl files in the same directory,
+    # that are evaluated altogether for a single model's response.
+    eval_cache = eval_cache / f"checkpoint_{checkpoint_idx}"
+    eval_cache.mkdir(parents=True)
 
     evaluator = MTBenchEvaluator(
         model_name=str(model),
@@ -903,10 +911,10 @@ def _evaluate_dir_of_checkpoints(
     # TODO: parallelize MMLU over available GPUs
 
     results: list[typing.Tuple[float, pathlib.Path]] = []
-    for ckpt_path in checkpoints_dir.iterdir():
+    for i, ckpt_path in enumerate(checkpoints_dir.iterdir()):
         if ckpt_path.is_dir():
             logger.debug(ckpt_path)
-            ckpt_score = eval_func(model=ckpt_path)
+            ckpt_score = eval_func(model=ckpt_path, checkpoint_idx=i)
             click.secho(
                 f"CHECKPOINT EVALUATION: {ckpt_path} SCORED {ckpt_score}",
                 fg="red",
